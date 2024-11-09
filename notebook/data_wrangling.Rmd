@@ -1,0 +1,198 @@
+---
+title: "data_wrangling"
+author: "Qiwei Lin"
+date: "2024-11-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(censusapi)
+# use your own key below
+Sys.setenv(CENSUS_KEY="dbe04b6900453a6f813d1136af7fc11f9357932c")
+```
+
+# Prepare County-Level Data
+
+## Prepare the County-Level Migration Flow Data
+
+```{r}
+# Function to clean and extract data from each sheet
+process_sheet <- function(sheet_name, file_path) {
+  # Read the sheet and skip the first 2 rows to get actual data
+  df <- read_excel(file_path, sheet = sheet_name, skip = 2)
+  
+  # Clean up column names
+  colnames(df) <- c("state_code_a", "fips_county_a", "state_code_b", "fips_county_b", 
+                    "state_name_a", "county_name_a", "state_name_b", "county_name_b", 
+                    "flow_b_to_a_estimate", "flow_b_to_a_moe", "flow_a_to_b_estimate", 
+                    "flow_a_to_b_moe", "net_migration_estimate", "net_migration_moe", 
+                    "gross_migration_estimate", "gross_migration_moe")
+  
+  # Filter out rows with missing values in essential columns
+  df <- df %>%
+    filter(!is.na(fips_county_a) & !is.na(fips_county_b)) %>%
+    select(state_code_a, state_name_a, county_name_a, fips_county_a,
+           state_code_b, state_name_b, county_name_b, fips_county_b,
+           flow_b_to_a_estimate, flow_a_to_b_estimate,
+           net_migration_estimate, gross_migration_estimate)
+  
+  return(df)
+}
+```
+
+```{r}
+# Get the list of sheets (each representing a state)
+file_path <- "../data/county-to-county-2016-2020-ins-outs-nets-gross.xlsx"
+sheets <- excel_sheets(file_path)
+
+# Apply the process_sheet function to each sheet and combine the results into one dataframe
+migration_data <- map_dfr(sheets, ~process_sheet(.x, file_path))
+```
+
+```{r}
+flow_data <- migration_data %>% 
+  mutate(fips_orig = str_c(state_code_a, fips_county_a),
+         fips_dest = str_c(state_code_b, fips_county_b)) %>% 
+  filter(flow_b_to_a_estimate >= 10 | 
+           flow_a_to_b_estimate >= 10) %>% 
+  select("fips_orig", "fips_dest", contains("flow")) %>% 
+  select(-flow_b_to_a_estimate) %>% 
+  rename(flow = flow_a_to_b_estimate) %>% 
+  filter(flow > 10)
+
+write_rds(flow_data, "")
+```
+
+
+
+## Prepare County-Level Sociodemographic Data
+
+```{r}
+download_acs_data <- function(year=2016){
+  # ACS variable name
+  var_lst <- c(
+    "B01001_001E", # total population
+    "B19013_001E", # median annual household income
+    "B23025_005E", # the number of the unemployed 
+    "B23025_003E", # the population size of civilian labor force
+    "B17017_002E", # the number of households under poverty line
+    "B17017_001E", # the number of households
+    "B03002_002E", # non-Hispanic total
+    "B03002_003E", # non-Hispanic white
+    "B03002_004E", # non-Hispanic black
+    "B03002_005E", # non-Hispanic Amer Indian and Alaska Native
+    "B03002_006E", # non-Hispanic Asian
+    "B03002_007E", # non-Hispanic NHPI
+    "B03002_012E" # Hispanic or Latino
+  )
+  
+  county_demo <- 
+    getCensus(
+      name = "acs/acs5",
+      vintage = year,
+      region = paste0("county", ":*"),
+      #regionin = paste0("state:",state),
+      vars = var_lst
+    ) %>% 
+    mutate(GEOID = paste0(state, county)) %>% 
+    census_processing()
+}
+
+
+```
+
+
+```{r}
+# a helper function to post-process census data
+census_processing <- function(df){
+  # remove NA and recode variables
+  df_processed <- df %>% 
+    map_dfr(.x=., ~replace(.x, .x==-666666666, NA)) %>% 
+    mutate(
+      unemp = B23025_005E/B23025_003E,
+      pov = B17017_002E/B17017_001E,
+      raw_non_other = rowSums(across(B03002_003E:B03002_007E),
+                              na.rm = TRUE),
+      EP_white = (B03002_003E/B01001_001E),
+      EP_black = (B03002_004E/B01001_001E),
+      EP_aian = (B03002_005E/B01001_001E),
+      EP_asian = (B03002_006E/B01001_001E),
+      EP_nhpi = (B03002_007E/B01001_001E),
+      EP_hispanic = (B03002_012E/B01001_001E),
+      EP_other = (B03002_002E - raw_non_other)/B01001_001E) %>% 
+    rename(
+      tot_pop = B01001_001E, 
+      median_inc = B19013_001E
+    ) %>% 
+    select(GEOID, tot_pop, median_inc, unemp, pov, 
+           contains("EP"))
+  
+  # calculate the diversity index
+  df_processed <- df_processed %>% 
+    mutate(
+      diveristy_idx = 1 - 
+        rowSums(across(starts_with("EP_"), ~ .x^2), 
+                na.rm = TRUE)
+    )
+
+  return(df_processed)
+}
+```
+
+
+```{r}
+county_demo <- download_acs_data()
+```
+
+
+```{r}
+county_demo %>% 
+  slice_max(diveristy_idx, n=100)
+```
+
+
+```{r}
+election_data <- read_csv("../data/election_data/countypres_2000-2020.csv")
+```
+
+```{r}
+election_data %>% 
+  filter(year == 2016, office == "US PRESIDENT",
+         party == "DEMOCRAT") %>% 
+  mutate(vote_share = candidatevotes/totalvotes) %>% 
+  select(year, county_fips, party, vote_share)
+```
+
+```{r}
+load("../data/crime_data/37059-0001-Data.rda")
+crime <- da37059.0001 %>% 
+  select(FIPS_ST, FIPS_CTY)
+```
+
+## Merge all county-level information
+
+```{r}
+
+```
+
+# Prepare International Migration Data
+
+## Prepare International flow data
+
+```{r}
+migration <- read_csv("../data/bilat_mig.csv")
+
+int_migration <- migration %>% 
+  filter(year0 == "2015", da_pb_closed > 100) %>% 
+  select(orig, dest, da_pb_closed) %>% 
+  rename(flow = da_pb_closed) 
+```
+

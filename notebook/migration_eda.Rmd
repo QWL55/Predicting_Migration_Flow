@@ -1,0 +1,94 @@
+---
+title: "Migration Data EDA"
+author: "Qiwei Lin"
+date: "2024-10-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+
+library(igraph)
+library(ggnetwork)
+library(circlize)
+```
+
+```{r}
+migration <- read_csv("../data/bilat_mig.csv")
+```
+
+```{r}
+migration %>% 
+  group_by(year0) %>% 
+  select(orig, dest, da_pb_closed) %>% 
+  filter(da_pb_closed > 10) %>% 
+  summarize(
+    n_edges = n(),
+    mean_flow = median(da_pb_closed)
+  )
+```
+
+
+
+```{r}
+flow_data <- migration_data %>% 
+  mutate(fips_orig = str_c(state_code_a, fips_county_a),
+         fips_dest = str_c(state_code_b, fips_county_b)) %>% 
+  filter(flow_b_to_a_estimate >= 10 | 
+           flow_a_to_b_estimate >= 10) %>% 
+  select("fips_orig", "fips_dest", contains("flow")) %>% 
+  select(-flow_b_to_a_estimate) %>% 
+  rename(flow = flow_a_to_b_estimate) %>% 
+  filter(flow > 10)
+```
+
+# Calculate Network Statistics 
+
+```{r}
+
+```
+
+```{r}
+county_flow <- graph_from_data_frame(flow_data)
+```
+
+```{r}
+ggplot(ggnetwork(flow_data %>% 
+                   filter(str_detect(fips_orig, "^006")), 
+                 layout = "kamadakawai"), 
+       aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_edges(color = "red", size = 0.5, alpha=0.25) +
+  geom_nodes(size = 0.25) +
+  theme_minimal() +
+  labs(title = "Network Visualization",
+       color = "Nodes") +
+  theme(legend.position = "none")
+```
+
+
+## International migration
+
+```{r}
+int_migration <- migration %>% 
+  filter(year0 == "2015", da_pb_closed > 100) %>% 
+  select(orig, dest, da_pb_closed) %>% 
+  rename(flow = da_pb_closed) 
+```
+
+```{r}
+ggplot(ggnetwork(int_migration, 
+                 layout = "kamadakawai"), 
+       aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_edges(color = "grey", size = 0.5, alpha=0.25) +
+  geom_nodes(size = 0.25) +
+  theme_minimal() +
+  labs(title = "Network Visualization",
+       color = "Nodes") +
+  theme(legend.position = "none")
+```
+

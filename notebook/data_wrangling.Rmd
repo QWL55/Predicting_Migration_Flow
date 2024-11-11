@@ -50,7 +50,7 @@ process_sheet <- function(sheet_name, file_path) {
 
 ```{r}
 # Get the list of sheets (each representing a state)
-file_path <- "../data/county-to-county-2016-2020-ins-outs-nets-gross.xlsx"
+file_path <- "../data/raw_migration_data/county-to-county-2016-2020-ins-outs-nets-gross.xlsx"
 sheets <- excel_sheets(file_path)
 
 # Apply the process_sheet function to each sheet and combine the results into one dataframe
@@ -66,11 +66,11 @@ flow_data <- migration_data %>%
   select("fips_orig", "fips_dest", contains("flow")) %>% 
   select(-flow_b_to_a_estimate) %>% 
   rename(flow = flow_a_to_b_estimate) %>% 
-  filter(flow > 10)
+  filter(flow > 10, 
+         !str_detect(fips_orig, "^072")) # remove Puerto Rico	
 
-write_rds(flow_data, "")
+write_csv(flow_data, "../data/output_data/county_flow.csv")
 ```
-
 
 
 ## Prepare County-Level Sociodemographic Data
@@ -91,7 +91,19 @@ download_acs_data <- function(year=2016){
     "B03002_005E", # non-Hispanic Amer Indian and Alaska Native
     "B03002_006E", # non-Hispanic Asian
     "B03002_007E", # non-Hispanic NHPI
-    "B03002_012E" # Hispanic or Latino
+    "B03002_012E", # Hispanic or Latino
+    "B01001_020E", # varaibles for age > 65
+    "B01001_021E",
+    "B01001_022E",
+    "B01001_023E",
+    "B01001_024E",
+    "B01001_025E",
+    "B01001_044E",
+    "B01001_045E",
+    "B01001_046E",
+    "B01001_047E",
+    "B01001_048E",
+    "B01001_049E"
   )
   
   county_demo <- 
@@ -104,6 +116,8 @@ download_acs_data <- function(year=2016){
     ) %>% 
     mutate(GEOID = paste0(state, county)) %>% 
     census_processing()
+
+  return(county_demo)
 }
 
 
@@ -127,7 +141,9 @@ census_processing <- function(df){
       EP_asian = (B03002_006E/B01001_001E),
       EP_nhpi = (B03002_007E/B01001_001E),
       EP_hispanic = (B03002_012E/B01001_001E),
-      EP_other = (B03002_002E - raw_non_other)/B01001_001E) %>% 
+      EP_other = (B03002_002E - raw_non_other)/B01001_001E,
+      EP_age_65 = rowSums(across(B01001_020E:B01001_049E),
+                              na.rm = TRUE) / B01001_001E) %>% 
     rename(
       tot_pop = B01001_001E, 
       median_inc = B19013_001E
@@ -145,17 +161,40 @@ census_processing <- function(df){
 
   return(df_processed)
 }
+
+download_housing <- function(){
+  var_lst <- c(
+    "S2503_C01_001E", # number of housing units
+    "S2503_C01_028E", # num of units with certain housing burden
+    "S2503_C01_032E",
+    "S2503_C01_036E",
+    "S2503_C01_040E"
+  )
+  
+  county_housing <- 
+    getCensus(
+      name = "acs/acs5/subject",
+      vintage = year,
+      region = paste0("county", ":*"),
+      #regionin = paste0("state:",state),
+      vars = var_lst
+    ) %>% 
+    mutate(
+      GEOID = paste0(state, county),
+      hou_burd = rowSums(across(S2503_C01_028E:S2503_C01_040E),
+                                na.rm=T) / S2503_C01_001E,
+      hou_burd = ifelse(hou_burd > 1, 1, hou_burd)) %>%  
+    select(GEOID, hou_burd)
+  
+  return(county_housing)
+}
 ```
 
 
 ```{r}
 county_demo <- download_acs_data()
-```
 
-
-```{r}
-county_demo %>% 
-  slice_max(diveristy_idx, n=100)
+county_housing <- download_housing()
 ```
 
 
@@ -164,23 +203,46 @@ election_data <- read_csv("../data/election_data/countypres_2000-2020.csv")
 ```
 
 ```{r}
-election_data %>% 
+election_data_clean <- election_data %>% 
   filter(year == 2016, office == "US PRESIDENT",
          party == "DEMOCRAT") %>% 
-  mutate(vote_share = candidatevotes/totalvotes) %>% 
-  select(year, county_fips, party, vote_share)
+  mutate(vote_share = candidatevotes/totalvotes,
+         county_fips = str_pad(county_fips, width = 6, 
+                               pad = "0")) %>% 
+  select(county_fips, vote_share)
 ```
 
 ```{r}
 load("../data/crime_data/37059-0001-Data.rda")
-crime <- da37059.0001 %>% 
-  select(FIPS_ST, FIPS_CTY)
+crime <- da37059.0001 %>%
+  mutate(across(contains("FIPS"), str_pad, width = 3, 
+                pad = "0")) %>% 
+  mutate(GEOID = str_c(FIPS_ST, FIPS_CTY)) %>% 
+  select(GEOID, GRNDTOT) 
 ```
 
 ## Merge all county-level information
 
 ```{r}
+county_info <- county_demo %>% 
+  select(GEOID, tot_pop:pov, EP_age_65, diveristy_idx) %>% 
+  left_join(county_housing, by="GEOID") %>% 
+  mutate(GEOID = str_pad(GEOID, width = 6, pad = "0")) %>% 
+  left_join(election_data_clean, by=c("GEOID"="county_fips")) %>% 
+  left_join(crime, by="GEOID") %>% 
+  filter(!str_detect(GEOID, "^072")) %>% 
+  mutate(GRNDTOT = replace_na(GRNDTOT, 0),
+         vote_share = case_when(
+           is.na(vote_share) & str_detect(GEOID, "^002") ~ 0.3655, 
+           is.na(vote_share) & str_detect(GEOID, "^015") ~ 0.7,
+           T ~ vote_share
+         ),
+         crime_rate = GRNDTOT / tot_pop) %>% 
+  select(-GRNDTOT) %>% 
+  arrange(GEOID)
 
+write_csv(county_info,
+          "../data/output_data/county_node_info.csv")
 ```
 
 # Prepare International Migration Data

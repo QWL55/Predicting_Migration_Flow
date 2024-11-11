@@ -250,7 +250,7 @@ write_csv(county_info,
 ## Prepare International flow data
 
 ```{r}
-migration <- read_csv("../data/bilat_mig.csv")
+migration <- read_csv("../data/raw_migration_data/bilat_mig.csv")
 
 int_migration <- migration %>% 
   filter(year0 == "2015", da_pb_closed > 100) %>% 

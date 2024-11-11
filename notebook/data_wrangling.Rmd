@@ -254,7 +254,7 @@ write_csv(county_info,
 migration <- read_csv("../data/raw_migration_data/bilat_mig.csv")
 
 int_migration <- migration %>% 
-  filter(year0 == "2010", da_pb_closed > 100) %>% 
+  filter(year0 == "2015", da_pb_closed > 100) %>% 
   select(orig, dest, da_pb_closed) %>% 
   rename(flow = da_pb_closed) 
 ```
@@ -267,6 +267,31 @@ population <- read_csv("../data/population_data/world_bank_population_data.csv")
 
 int_population <- population%>%
   clean_names()%>%
-  select(c(country_name, country_code, x2010))%>%
-  rename(population = x2010)
+  select(c(country_name, country_code, x2015))%>%
+  rename(population = x2015)
+
+# load world bank age-dependency ratio data for merge
+age_ratio <- read_csv("../data/population_data/age_dependency_ratio.csv")%>%
+  clean_names()%>%
+  select(c(country_code, year, value))%>%
+  rename(age_ratio = value)%>%
+  filter(year == 2015)
+
+# load world bank per-capita gdp data for merge
+gdp <- read_csv("../data/population_data/wb_per_capita_gdp.csv")%>%
+  clean_names%>%
+  select(c(country_code,x2015))%>%
+  rename(per_capita_gdp = x2015)
+
+# load world bank unemployment data for merge
+unemployment <- read_csv("../data/population_data/wb_unemployment_data.csv")%>%
+  clean_names%>%
+  select(c(country_code,x2015))%>%
+  rename(per_capita_gdp = x2015)
+
+#load pre-prepared vdem data
+#The high-level electoral democracy index only covers 179 countries
+vdem_data <- read_csv("../data/population_data/vdem_short.csv")
+
+#load and prepare World Trade Analysis Project Data
 ```

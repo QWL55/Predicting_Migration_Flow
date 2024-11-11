@@ -66,7 +66,7 @@ flow_data <- migration_data %>%
   select("fips_orig", "fips_dest", contains("flow")) %>% 
   select(-flow_b_to_a_estimate) %>% 
   rename(flow = flow_a_to_b_estimate) %>% 
-  filter(flow > 10, 
+  filter(flow > 100, 
          !str_detect(fips_orig, "^072")) # remove Puerto Rico	
 
 write_csv(flow_data, "../data/output_data/county_flow.csv")
@@ -242,7 +242,7 @@ county_info <- county_demo %>%
   arrange(GEOID)
 
 write_csv(county_info,
-          "../data/output_data/county_node_info.csv")
+          "../data/output_data/county_node_info.csv")x
 ```
 
 # Prepare International Migration Data

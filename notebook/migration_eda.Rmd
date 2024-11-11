@@ -11,26 +11,43 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
-library(readxl)
-
 library(igraph)
 library(ggnetwork)
-library(circlize)
 ```
 
 ```{r}
-migration <- read_csv("../data/bilat_mig.csv")
+migration <- read_csv("../data/output_data/county_flow.csv")
+```
+
+```{r}
+county_graph <- graph_from_data_frame(migration, 
+                                      directed = F)
+```
+
+```{r}
+county_graph %>% diameter()
 ```
 
 ```{r}
 migration %>% 
-  group_by(year0) %>% 
-  select(orig, dest, da_pb_closed) %>% 
-  filter(da_pb_closed > 10) %>% 
-  summarize(
-    n_edges = n(),
-    mean_flow = median(da_pb_closed)
-  )
+  rowwise() %>% 
+  mutate(min_fips = min(fips_orig, fips_dest),
+         max_fips = max(fips_orig, fips_dest)) %>% 
+  ungroup() %>% 
+  distinct(min_fips, max_fips)
+```
+
+
+```{r}
+
+
+migration %>% nrow()
+
+node_info <- data.frame(
+  deg = degree(county_graph)
+)
+
+mean(node_info$deg)
 ```
 
 

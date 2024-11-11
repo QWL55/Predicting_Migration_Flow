@@ -92,7 +92,7 @@ ggplot(ggnetwork(flow_data %>%
 
 ```{r}
 int_migration <- migration %>% 
-  filter(year0 == "2015", da_pb_closed > 100) %>% 
+  filter(year0 == "2010", da_pb_closed > 100) %>% 
   select(orig, dest, da_pb_closed) %>% 
   rename(flow = da_pb_closed) 
 ```

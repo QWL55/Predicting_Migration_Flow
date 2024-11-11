@@ -15,6 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(readxl)
 library(censusapi)
+library(janitor)
 # use your own key below
 Sys.setenv(CENSUS_KEY="dbe04b6900453a6f813d1136af7fc11f9357932c")
 ```
@@ -253,8 +254,19 @@ write_csv(county_info,
 migration <- read_csv("../data/raw_migration_data/bilat_mig.csv")
 
 int_migration <- migration %>% 
-  filter(year0 == "2015", da_pb_closed > 100) %>% 
+  filter(year0 == "2010", da_pb_closed > 100) %>% 
   select(orig, dest, da_pb_closed) %>% 
   rename(flow = da_pb_closed) 
 ```
 
+## Prepare International Covariates
+
+````{r}
+# load world bank population data for merge
+population <- read_csv("../data/population_data/world_bank_population_data.csv")
+
+int_population <- population%>%
+  clean_names()%>%
+  select(c(country_name, country_code, x2010))%>%
+  rename(population = x2010)
+```

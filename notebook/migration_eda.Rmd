@@ -17,62 +17,35 @@ library(ggnetwork)
 
 ```{r}
 migration <- read_csv("../data/output_data/county_flow.csv")
+
+county_node <- read_csv("../data/output_data/county_node_info.csv")
 ```
 
 ```{r}
 county_graph <- graph_from_data_frame(migration, 
-                                      directed = F)
+                                      directed = T)
 ```
 
 ```{r}
-county_graph %>% diameter()
+mean(migration$flow)
 ```
 
 ```{r}
-migration %>% 
-  rowwise() %>% 
-  mutate(min_fips = min(fips_orig, fips_dest),
-         max_fips = max(fips_orig, fips_dest)) %>% 
-  ungroup() %>% 
-  distinct(min_fips, max_fips)
+county_node %>% names()
 ```
-
-
 ```{r}
-
-
-migration %>% nrow()
-
-node_info <- data.frame(
-  deg = degree(county_graph)
-)
-
-mean(node_info$deg)
+county_node %>% 
+  select(-GEOID) %>% 
+  map_dfr(summary) %>% 
+  round(digit=3) %>% 
+  select(Mean, Median, Max., Min.)
 ```
 
 
-
-```{r}
-flow_data <- migration_data %>% 
-  mutate(fips_orig = str_c(state_code_a, fips_county_a),
-         fips_dest = str_c(state_code_b, fips_county_b)) %>% 
-  filter(flow_b_to_a_estimate >= 10 | 
-           flow_a_to_b_estimate >= 10) %>% 
-  select("fips_orig", "fips_dest", contains("flow")) %>% 
-  select(-flow_b_to_a_estimate) %>% 
-  rename(flow = flow_a_to_b_estimate) %>% 
-  filter(flow > 10)
-```
 
 # Calculate Network Statistics 
 
-```{r}
-
-```
-
-```{r}
-county_flow <- graph_from_data_frame(flow_data)
-```
+# Network Visualization
 
 ```{r}
 ggplot(ggnetwork(flow_data %>% 

@@ -67,8 +67,9 @@ flow_data <- migration_data %>%
   select("fips_orig", "fips_dest", contains("flow")) %>% 
   select(-flow_b_to_a_estimate) %>% 
   rename(flow = flow_a_to_b_estimate) %>% 
-  filter(flow > 100, 
-         !str_detect(fips_orig, "^072")) # remove Puerto Rico	
+  filter(flow >= 25, 
+         !str_detect(fips_orig, "^072"),
+         !str_detect(fips_dest, "^072")) # remove Puerto Rico	
 
 write_csv(flow_data, "../data/output_data/county_flow.csv")
 ```
@@ -143,14 +144,14 @@ census_processing <- function(df){
       EP_nhpi = (B03002_007E/B01001_001E),
       EP_hispanic = (B03002_012E/B01001_001E),
       EP_other = (B03002_002E - raw_non_other)/B01001_001E,
-      EP_age_65 = rowSums(across(B01001_020E:B01001_049E),
+      age_65 = rowSums(across(B01001_020E:B01001_049E),
                               na.rm = TRUE) / B01001_001E) %>% 
     rename(
       tot_pop = B01001_001E, 
       median_inc = B19013_001E
     ) %>% 
     select(GEOID, tot_pop, median_inc, unemp, pov, 
-           contains("EP"))
+           contains("EP"), age_65)
   
   # calculate the diversity index
   df_processed <- df_processed %>% 
@@ -163,7 +164,7 @@ census_processing <- function(df){
   return(df_processed)
 }
 
-download_housing <- function(){
+download_housing <- function(year=2016){
   var_lst <- c(
     "S2503_C01_001E", # number of housing units
     "S2503_C01_028E", # num of units with certain housing burden
@@ -198,7 +199,6 @@ county_demo <- download_acs_data()
 county_housing <- download_housing()
 ```
 
-
 ```{r}
 election_data <- read_csv("../data/election_data/countypres_2000-2020.csv")
 ```
@@ -226,7 +226,7 @@ crime <- da37059.0001 %>%
 
 ```{r}
 county_info <- county_demo %>% 
-  select(GEOID, tot_pop:pov, EP_age_65, diveristy_idx) %>% 
+  select(GEOID, tot_pop:pov, age_65, diveristy_idx) %>% 
   left_join(county_housing, by="GEOID") %>% 
   mutate(GEOID = str_pad(GEOID, width = 6, pad = "0")) %>% 
   left_join(election_data_clean, by=c("GEOID"="county_fips")) %>% 
@@ -241,10 +241,27 @@ county_info <- county_demo %>%
          crime_rate = GRNDTOT / tot_pop) %>% 
   select(-GRNDTOT) %>% 
   arrange(GEOID)
-
-write_csv(county_info,
-          "../data/output_data/county_node_info.csv")x
 ```
+
+```{r}
+flow_data_filterd <- flow_data %>% 
+  inner_join(county_info %>% select(GEOID), 
+             by=c("fips_orig"="GEOID")) %>% 
+  inner_join(county_info %>% select(GEOID), 
+             by=c("fips_dest"="GEOID"))
+
+write_csv(flow_data_filterd, "../data/output_data/county_flow.csv")
+
+all_nodes <- c(
+  flow_data_filterd$fips_orig, 
+  flow_data_filterd$fips_dest
+) %>% unique()
+
+county_info %>% 
+  filter(GEOID %in% all_nodes) %>%
+  write_csv("../data/output_data/county_node_info.csv")
+```
+
 
 # Prepare International Migration Data
 

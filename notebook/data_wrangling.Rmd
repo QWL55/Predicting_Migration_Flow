@@ -62,8 +62,6 @@ migration_data <- map_dfr(sheets, ~process_sheet(.x, file_path))
 flow_data <- migration_data %>% 
   mutate(fips_orig = str_c(state_code_a, fips_county_a),
          fips_dest = str_c(state_code_b, fips_county_b)) %>% 
-  filter(flow_b_to_a_estimate >= 10 | 
-           flow_a_to_b_estimate >= 10) %>% 
   select("fips_orig", "fips_dest", contains("flow")) %>% 
   select(-flow_b_to_a_estimate) %>% 
   rename(flow = flow_a_to_b_estimate) %>% 
@@ -243,6 +241,14 @@ county_info <- county_demo %>%
   arrange(GEOID)
 ```
 
+## Load Google Population Dynamics Foundation Model (PDFM) Embeddings
+
+```{r}
+pdfm <- read_csv("../data/PDFM_data/county_embeddings.csv") %>% 
+  mutate(GEOID = str_extract(place, "[0-9]+") %>% 
+           str_pad(width = 6, pad = "0")) %>% 
+  select(GEOID, contains("feature"))
+```
 ```{r}
 flow_data_filterd <- flow_data %>% 
   inner_join(county_info %>% select(GEOID), 
@@ -251,14 +257,21 @@ flow_data_filterd <- flow_data %>%
              by=c("fips_dest"="GEOID"))
 
 write_csv(flow_data_filterd, "../data/output_data/county_flow.csv")
+```
 
+```{r}
 all_nodes <- c(
   flow_data_filterd$fips_orig, 
   flow_data_filterd$fips_dest
 ) %>% unique()
 
+# for counties without PDFM embedding, we fill in with 
+# all-one vectors
+
 county_info %>% 
   filter(GEOID %in% all_nodes) %>%
+  left_join(pdfm, by="GEOID") %>% 
+  mutate(across(contains("feature"), ~replace_na(., 1))) %>% 
   write_csv("../data/output_data/county_node_info.csv")
 ```
 

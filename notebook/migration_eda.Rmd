@@ -27,7 +27,8 @@ county_graph <- graph_from_data_frame(migration,
 ```
 
 ```{r}
-mean(migration$flow)
+summary(migration$flow)
+sd(migration$flow)
 ```
 
 ```{r}
@@ -39,11 +40,35 @@ county_node %>%
   map_dfr(summary) %>% 
   round(digit=3) %>% 
   select(Mean, Median, Max., Min.)
+
+county_node %>% 
+  select(-GEOID) %>% 
+  map_dfr(sd) %>% 
+  round(digit=3) 
 ```
 
 
 
 # Calculate Network Statistics 
+
+```{r}
+node_summary <- tibble(
+  out_deg = degree(county_graph, mode = "out"),
+  in_deg = degree(county_graph, mode = "in"),
+  eigen = eigen_centrality(county_graph)$vector
+)
+
+node_summary %>% 
+  map(summary)
+```
+```{r}
+edge_density(county_graph)
+
+mean_distance(county_graph)
+
+transitivity(county_graph)
+```
+
 
 # Network Visualization
 

@@ -16,6 +16,8 @@ library(tidyverse)
 library(readxl)
 library(censusapi)
 library(janitor)
+library(tigris)
+library(sf)
 # use your own key below
 Sys.setenv(CENSUS_KEY="dbe04b6900453a6f813d1136af7fc11f9357932c")
 ```
@@ -57,8 +59,8 @@ sheets <- excel_sheets(file_path)
 # Apply the process_sheet function to each sheet and combine the results into one dataframe
 migration_data <- map_dfr(sheets, ~process_sheet(.x, file_path))
 ```
-
 ```{r}
+# remove Puerto Rico, Hawaii, Alaska
 flow_data <- migration_data %>% 
   mutate(fips_orig = str_c(state_code_a, fips_county_a),
          fips_dest = str_c(state_code_b, fips_county_b)) %>% 
@@ -66,10 +68,59 @@ flow_data <- migration_data %>%
   select(-flow_b_to_a_estimate) %>% 
   rename(flow = flow_a_to_b_estimate) %>% 
   filter(flow >= 25, 
-         !str_detect(fips_orig, "^072"),
-         !str_detect(fips_dest, "^072")) # remove Puerto Rico	
+         !str_detect(fips_orig, "^(002|015|072)"),
+         !str_detect(fips_dest, "^(002|015|072)")) 
+```
 
-write_csv(flow_data, "../data/output_data/county_flow.csv")
+### Prepare County-Level Distance Data 
+
+```{r}
+calculate_dist <- function(flow_data){
+  counties <- counties(cb = TRUE, class = "sf", year=2016)
+  # For accurate distance calculations, it is best to project the data into a suitable projected CRS.
+  CRS_uni <- "+proj=longlat +datum=WGS84 +no_defs"
+  counties_proj <- st_transform(counties, CRS_uni)
+  centroids <- st_centroid(counties_proj) %>% 
+    mutate(GEOID = str_pad(GEOID, width = 6, pad = "0"))
+  
+  flow_df_filtered <- flow_data %>%
+    filter(fips_orig %in% centroids$GEOID,
+           fips_dest %in% centroids$GEOID)
+  print(flow_df_filtered)
+  # Extract centroids for origins in the order they appear in flow_df_filtered
+  centroids_orig <- centroids %>%
+    select(GEOID, geometry) %>% 
+    right_join(flow_df_filtered, 
+               by=c("GEOID"="fips_orig")) %>% 
+    slice(match(flow_df_filtered$fips_orig, GEOID)) 
+  # The last line ensures the order of rows in centroids_orig matches the order of fips_orig in flow_df_filtered
+
+  # Extract centroids for destinations in the order they appear in flow_df_filtered
+  centroids_dest <- centroids %>%
+    select(GEOID, geometry) %>% 
+    right_join(flow_df_filtered, 
+               by=c("GEOID"="fips_dest")) %>% 
+    slice(match(flow_df_filtered$fips_dest, GEOID))
+  
+  # Calculate distances between centroids
+  dist_vector <- st_distance(centroids_orig, centroids_dest, by_element = T)
+  
+  dist_df <- flow_df_filtered %>%
+    select(fips_orig, fips_dest) %>%
+    mutate(distance = as.numeric(dist_vector)/1000)
+  
+  return(dist_df)
+}
+```
+
+```{r}
+dist_df <- calculate_dist(flow_data)
+```
+
+```{r}
+flow_data %>% 
+  left_join(dist_df, by=c("fips_orig", "fips_dest")) %>% 
+  write_csv("../data/output_data/county_flow.csv")
 ```
 
 
